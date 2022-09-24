@@ -5,7 +5,6 @@ import time
 import telegram
 import requests
 from http import HTTPStatus
-import json
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -43,8 +42,8 @@ def send_message(bot, message):
             text=message
         )
         logger.info(f'Отправлено сообщение: {message}')
-    except telegram.TelegramError:
-        logger.error('Не удалось отправить сообщение.')
+    except Exception:
+        raise Exception('Не удалось отправить сообщение.')
 
 
 def get_api_answer(current_timestamp):
@@ -56,16 +55,14 @@ def get_api_answer(current_timestamp):
     params = {'from_date': timestamp}
     response = requests.get(ENDPOINT, headers=HEADERS, params=params)
     status = response.status_code
-    if status == HTTPStatus.OK:
-        try:
-            return response.json()
-        except json.decoder.JSONDecodeError:
-            logger.error('Ошибка преобразования к типам данных Python')
-    else:
-        logger.error(
+    if status != HTTPStatus.OK:
+        raise AssertionError(
             f'Недоступность эндпоинта {ENDPOINT}. Код ответа API: {status}'
         )
-        raise AssertionError
+    try:
+        return response.json()
+    except ValueError:
+        ValueError('Ошибка преобразования к типам данных Python')
 
 
 def check_response(response):
@@ -74,19 +71,14 @@ def check_response(response):
     В случае успеха возвращает список домашних работ,
     доступный в ответе API по ключу 'homeworks'.
     """
-    if type(response) is not dict:
-        logger.error('Ответ API не является словарем.')
-        raise TypeError
-
-    if ('current_date' in response) and ('homeworks' in response):
-        if type(response.get('homeworks')) is not list:
-            logger.error('Ответ API не соответствует.')
-            raise TypeError
-        homeworks = response.get('homeworks')
-        return homeworks
-    else:
-        logger.error('Ключи словаря не соответствуют ожиданиям.')
-        raise KeyError
+    if not isinstance(response, dict):
+        raise TypeError('Ответ API не является словарем.')
+    hws = response.get('homeworks')
+    if ('current_date' and 'homeworks' not in response):
+        raise KeyError('Ключи словаря не соответствуют ожиданиям.')
+    if not isinstance(hws, list):
+        raise TypeError('Ответ API не соответствует ожиданиям.')
+    return hws
 
 
 def parse_status(homework):
@@ -96,12 +88,10 @@ def parse_status(homework):
     """
     homework_name = homework.get('homework_name')
     if not homework_name:
-        logger.error(f'Отсутствует или пустое поле: {homework_name}')
-        raise KeyError
+        raise KeyError(f'Отсутствует или пустое поле: {homework_name}')
     homework_status = homework.get('status')
     if homework_status not in HOMEWORK_STATUSES:
-        logger.error(f'Неизвестный статус: {homework_status}')
-        raise KeyError
+        raise KeyError(f'Неизвестный статус: {homework_status}')
     verdict = HOMEWORK_STATUSES.get(homework_status)
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
@@ -126,15 +116,14 @@ def main():
             response = get_api_answer(current_timestamp)
             homeworks = check_response(response)
             if homeworks:
-                for hw in homeworks:
-                    message = parse_status(hw)
-                    send_message(bot, message)
+                message = parse_status(homeworks[0])
+                send_message(bot, message)
             else:
                 logger.debug('Новые статусы в ответе отсутствуют')
-            current_timestamp = response.get('current_date')
+            current_timestamp = response.get('current_date', int(time.time()))
         except Exception as error:
+            logger.error(error)
             message = f'Сбой в работе программы: {error}'
-            logger.error(message)
             send_message(bot, message)
         finally:
             time.sleep(RETRY_TIME)
