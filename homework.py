@@ -74,8 +74,9 @@ def check_response(response):
     if not isinstance(response, dict):
         raise TypeError('Ответ API не является словарем.')
     hws = response.get('homeworks')
-    if ('current_date' and 'homeworks' not in response):
-        raise KeyError('Ключи словаря не соответствуют ожиданиям.')
+    cur_date = response.get('current_date')
+    if (hws is None or cur_date is None):
+        raise KeyError('Ошибка в получении значений словаря.')
     if not isinstance(hws, list):
         raise TypeError('Ответ API не соответствует ожиданиям.')
     return hws
@@ -120,7 +121,10 @@ def main():
                 send_message(bot, message)
             else:
                 logger.debug('Новые статусы в ответе отсутствуют')
-            current_timestamp = response.get('current_date', int(time.time()))
+            current_timestamp = response.get(
+                'current_date',
+                int(time.time()) - RETRY_TIME
+            )
         except Exception as error:
             logger.error(error)
             message = f'Сбой в работе программы: {error}'
